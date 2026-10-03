@@ -1,0 +1,42 @@
+# Include-only fragment: defines the asr-sidecar service and nothing else.
+#
+# Referenced from LibreChat's docker-compose.override.yaml via `include`, so a single
+# `docker compose up -d` in /opt/LibreChat starts the app and the sidecar.
+#
+# Deliberately does NOT define qwen3-asr. Adopting the model service into the LibreChat
+# project would let `up` recreate the vLLM container — a multi-minute weight reload — and
+# the sidecar never needs that, since it resolves the upstream per request and the model
+# container returns on its own at boot under `restart: unless-stopped`.
+#
+# The sidecar shares no network with the model container. It reaches vLLM through the
+# published port instead, which keeps the two compose projects fully independent: `down`
+# in either directory can no longer break `up` in the other. The earlier design attached
+# qwen3-asr-17b_default as an external network, and because `down` removes networks while
+# `external: true` refuses to recreate them, tearing down the model project made the
+# LibreChat project fail to start at all.
+#
+# IF THE SERVER'S LAN IP CHANGES, EDIT UPSTREAM_URL BELOW. A stale address fails loudly
+# as 502 `transcription backend unreachable` in the sidecar log, never silently.
+
+services:
+  asr-sidecar:
+    build:
+      context: /home/main/vllm/Qwen3-ASR-1.7B/asr-sidecar
+    container_name: asr-sidecar
+    restart: unless-stopped
+    ports:
+      - "8101:8080"
+    environment:
+      - UPSTREAM_URL=http://192.168.1.1:8100/v1/audio/transcriptions
+      - ASR_MODEL=qwen-asr
+      # Read from the .env named by the include's env_file. Must equal
+      # speech.stt.openai.apiKey in librechat.yaml, or every request is rejected 401.
+      - SIDECAR_API_KEY=${SIDECAR_API_KEY:?SIDECAR_API_KEY is not set}
+      - UPSTREAM_TIMEOUT_SECONDS=300
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
