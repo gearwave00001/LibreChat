@@ -4,6 +4,7 @@ import {
   TextToSpeechSwitch,
   VoiceDropdown,
   CacheTTSSwitch,
+  IncludeThinkingSwitch,
   AutomaticPlaybackSwitch,
   CloudBrowserVoicesSwitch,
   PlaybackRate,
@@ -538,6 +539,13 @@ export const registry: SettingEntry[] = [
     section: 'tts',
     labelKey: 'com_nav_text_to_speech',
     Component: TextToSpeechSwitch,
+  },
+  {
+    id: 'ttsIncludeThinking',
+    tab: SPEECH,
+    section: 'tts',
+    labelKey: 'com_nav_tts_include_thinking',
+    Component: IncludeThinkingSwitch,
   },
   {
     id: 'engineTTS',

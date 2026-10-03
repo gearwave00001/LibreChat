@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
+import { useAtomValue } from 'jotai';
 import { useSetRecoilState } from 'recoil';
 import { useParams } from 'react-router-dom';
-import { parseTextParts } from 'librechat-data-provider';
+import { parseTextParts, stripThinkingTags } from 'librechat-data-provider';
 import useTextToSpeechBrowser from '~/hooks/Input/useTextToSpeechBrowser';
 import useAutoplayTrigger from '~/hooks/Audio/useAutoplayTrigger';
+import { ttsIncludeThinkingAtom } from '~/store/ttsThinking';
 import { logger } from '~/utils';
 import store from '~/store';
 
@@ -19,6 +21,7 @@ export default function BrowserAudio({ index = 0 }) {
 
   const { shouldPlay, activeRunId, latestMessage } = useAutoplayTrigger(index);
   const { generateSpeechLocal, cancelSpeechLocal } = useTextToSpeechBrowser({ setIsSpeaking });
+  const ttsIncludeThinking = useAtomValue(ttsIncludeThinkingAtom);
 
   /**
    * Leaving a conversation (or unmounting) stops whatever is still being spoken. React runs
@@ -36,10 +39,18 @@ export default function BrowserAudio({ index = 0 }) {
       return;
     }
 
-    const text =
-      Array.isArray(latestMessage.content) && latestMessage.content.length > 0
-        ? parseTextParts(latestMessage.content)
-        : (latestMessage.text ?? '');
+    /** Autoplay mirrors the read-aloud extraction: thinking is spoken only when
+     *  the user opted into hearing it. */
+    const skipReasoning = !ttsIncludeThinking;
+    const content = latestMessage.content;
+    let text: string;
+    if (Array.isArray(content) && content.length > 0) {
+      text = parseTextParts(content, skipReasoning);
+    } else if (skipReasoning) {
+      text = stripThinkingTags(latestMessage.text);
+    } else {
+      text = latestMessage.text ?? '';
+    }
 
     if (!text) {
       return;
@@ -51,7 +62,14 @@ export default function BrowserAudio({ index = 0 }) {
     if (generateSpeechLocal(text)) {
       setAudioRunId(activeRunId);
     }
-  }, [shouldPlay, activeRunId, latestMessage, setAudioRunId, generateSpeechLocal]);
+  }, [
+    shouldPlay,
+    activeRunId,
+    latestMessage,
+    setAudioRunId,
+    generateSpeechLocal,
+    ttsIncludeThinking,
+  ]);
 
   return null;
 }

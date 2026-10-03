@@ -2,7 +2,6 @@ import React, { useState, useMemo, useCallback, memo } from 'react';
 import { Copy, Check } from 'lucide';
 import { useAtomValue } from 'jotai';
 import { useRecoilState } from 'recoil';
-import { findMessageById, isUserInitiatedCompaction } from 'librechat-data-provider';
 import {
   Button,
   EditIcon,
@@ -11,9 +10,16 @@ import {
   TooltipAnchor,
   RegenerateIcon,
 } from '@librechat/client';
+import {
+  findMessageById,
+  isUserInitiatedCompaction,
+  parseTextParts,
+  stripThinkingTags,
+} from 'librechat-data-provider';
 import type { TConversation, TMessage, TFeedback } from 'librechat-data-provider';
 import { useMessagesIsSubmitting, useOptionalMessagesOperations } from '~/Providers';
 import { useGenerationsByLatest, useLocalize } from '~/hooks';
+import { ttsIncludeThinkingAtom } from '~/store/ttsThinking';
 import { hasEditablePart } from './Content/editableParts';
 import { revealedQueuedTurnFamily } from '~/store/steer';
 import { Fork } from '~/components/Conversations';
@@ -55,36 +61,21 @@ type HoverButtonProps = {
   disabled?: boolean;
 };
 
-const extractMessageContent = (message: TMessage): string => {
+/** Read-aloud extraction. Reasoning parts and embedded thinking markers are
+ *  only spoken when the user opted into hearing them (read-aloud otherwise
+ *  mirrors the transcript, which renders thinking as a separate disclosure). */
+const extractMessageContent = (message: TMessage, includeThinking: boolean): string => {
+  const skipReasoning = !includeThinking;
+
   if (typeof message.content === 'string') {
-    return message.content;
+    return skipReasoning ? stripThinkingTags(message.content) : message.content;
   }
 
   if (Array.isArray(message.content)) {
-    return message.content
-      .map((part) => {
-        if (part == null) {
-          return '';
-        }
-        if (typeof part === 'string') {
-          return part;
-        }
-        if ('text' in part) {
-          return part.text || '';
-        }
-        if ('think' in part) {
-          const think = part.think;
-          if (typeof think === 'string') {
-            return think;
-          }
-          return think && 'text' in think ? think.text || '' : '';
-        }
-        return '';
-      })
-      .join('');
+    return parseTextParts(message.content, skipReasoning);
   }
 
-  return message.text || '';
+  return skipReasoning ? stripThinkingTags(message.text) : (message.text ?? '');
 };
 
 const HoverButton = memo(
@@ -146,6 +137,7 @@ const HoverButtons = ({
   const isSubmitting = useMessagesIsSubmitting();
   const [isCopied, setIsCopied] = useState(false);
   const [TextToSpeech] = useRecoilState<boolean>(store.textToSpeech);
+  const ttsIncludeThinking = useAtomValue(ttsIncludeThinkingAtom);
   const { getMessages } = useOptionalMessagesOperations();
   const pendingReveal = useAtomValue(revealedQueuedTurnFamily(conversation?.conversationId ?? ''));
 
@@ -235,7 +227,7 @@ const HoverButtons = ({
           index={index}
           isLast={isLast}
           messageId={message.messageId}
-          content={extractMessageContent(message)}
+          content={extractMessageContent(message, ttsIncludeThinking)}
           renderButton={(props) => (
             <HoverButton
               onClick={props.onClick}

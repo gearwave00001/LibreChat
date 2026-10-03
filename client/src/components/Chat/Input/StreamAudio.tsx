@@ -1,4 +1,5 @@
 import { useEffect, useCallback } from 'react';
+import { useAtomValue } from 'jotai';
 import { useParams } from 'react-router-dom';
 import { QueryKeys } from 'librechat-data-provider';
 import { useQueryClient } from '@tanstack/react-query';
@@ -10,6 +11,7 @@ import {
   MediaSourceAppender,
   usePauseGlobalAudio,
 } from '~/hooks/Audio';
+import { ttsIncludeThinkingAtom } from '~/store/ttsThinking';
 import { useAuthContext } from '~/hooks';
 import { globalAudioId } from '~/common';
 import { logger } from '~/utils';
@@ -32,6 +34,7 @@ export default function StreamAudio({ index = 0 }) {
 
   const voice = useRecoilValue(store.voice);
   const automaticPlayback = useRecoilValue(store.automaticPlayback);
+  const ttsIncludeThinking = useAtomValue(ttsIncludeThinkingAtom);
   const setIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(index));
   const setAudioRunId = useSetRecoilState(store.audioRunFamily(index));
   const [isFetching, setIsFetching] = useRecoilState(store.globalAudioFetchingFamily(index));
@@ -66,7 +69,12 @@ export default function StreamAudio({ index = 0 }) {
           setGlobalAudioURL(null);
         }
 
-        let cacheKey = latestMessage?.text ?? '';
+        /** The spoken text depends on the read-aloud thinking preference, so
+         *  the cached audio must be keyed on it too. */
+        const skipReasoning = !ttsIncludeThinking;
+        let cacheKey = skipReasoning
+          ? `${latestMessage?.text ?? ''}|no-thinking`
+          : (latestMessage?.text ?? '');
         const cache = await caches.open('tts-responses');
         const cachedResponse = await cache.match(cacheKey);
 
@@ -84,7 +92,12 @@ export default function StreamAudio({ index = 0 }) {
         const response = await fetch('/api/files/speech/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ messageId: latestMessage?.messageId, runId: activeRunId, voice }),
+          body: JSON.stringify({
+            messageId: latestMessage?.messageId,
+            runId: activeRunId,
+            voice,
+            skipReasoning,
+          }),
         });
 
         if (!response.ok) {
@@ -139,7 +152,8 @@ export default function StreamAudio({ index = 0 }) {
             const targetMessage = latestMessages.find(
               (msg) => msg.messageId === latestMessage?.messageId,
             );
-            cacheKey = targetMessage?.text ?? '';
+            const storedText = targetMessage?.text ?? '';
+            cacheKey = skipReasoning ? `${storedText}|no-thinking` : storedText;
             if (!cacheKey) {
               logger.warn('Cache key not found, skipping audio cache');
             } else {
@@ -179,6 +193,7 @@ export default function StreamAudio({ index = 0 }) {
     audioRef,
     voice,
     token,
+    ttsIncludeThinking,
   ]);
 
   useEffect(() => {

@@ -20,6 +20,7 @@ import { useReasoningDisclosure } from '../disclosure';
 import { fontSizeAtom } from '~/store/fontSize';
 import { useMessageContext } from '~/Providers';
 import { ROW_GLYPH_SLOT } from '../rows';
+import ThinkingTTS from './ThinkingTTS';
 import { cn } from '~/utils';
 
 const stripThinkTags = (reasoning: string): string =>
@@ -165,7 +166,7 @@ const Reasoning = memo((props: ReasoningProps) => {
   const { ref: headerRef, inViewport: headerInViewport } = useInViewport();
   const { style: expandStyle, ref: expandRef } = useExpandCollapse(isExpanded);
   const { shouldRenderBody, mountBody, handleTransitionEnd } = useLazyCollapseBody(isExpanded);
-  const { isSubmitting, isLatestMessage, nextType } = useMessageContext();
+  const { isSubmitting, isLatestMessage, nextType, messageId } = useMessageContext();
 
   // Strip <think> tags from the reasoning content (modern format)
   const reasoningText = useMemo(() => stripThinkTags(reasoning), [reasoning]);
@@ -236,6 +237,13 @@ const Reasoning = memo((props: ReasoningProps) => {
               smoothStreaming && effectiveIsSubmitting && Boolean(reasoningLabel?.trim())
             }
             shimmerLabel={effectiveIsSubmitting && isLast}
+            tts={
+              <ThinkingTTS
+                content={reasoningText}
+                messageId={messageId}
+                isLast={isLast && isLatestMessage === true}
+              />
+            }
           />
           {!isExpanded && effectiveIsSubmitting && isLast && (
             <StreamingThoughtPeek text={reasoningText} />
@@ -266,6 +274,7 @@ const Reasoning = memo((props: ReasoningProps) => {
                   onClick={handleClick}
                   content={reasoningText}
                   contentId={contentId}
+                  messageId={messageId}
                 />
               </div>
             )}
@@ -324,6 +333,7 @@ export const ReasoningCompact = memo(
      *  behind the invisible panel made long reasoning streams progressively
      *  more expensive on top of the visible peek. */
     const { shouldRenderBody, mountBody, handleTransitionEnd } = useLazyCollapseBody(isExpanded);
+    const { messageId } = useMessageContext();
 
     const reasoningText = useMemo(() => stripThinkTags(reasoning), [reasoning]);
 
@@ -390,18 +400,29 @@ export const ReasoningCompact = memo(
             />
           </Button>
           {isExpanded && (
-            <CopyButton
-              isCopied={isCopied}
-              iconOnly
-              onClick={handleCopy}
-              label={localize('com_ui_copy_thoughts_to_clipboard')}
-              copiedLabel={localize('com_ui_copied_to_clipboard')}
-              className={cn(
-                'shrink-0 opacity-0 transition-opacity',
-                'group-focus-within/reasoning-compact:opacity-100 group-hover/reasoning-compact:opacity-100',
-                'focus-visible:opacity-100',
-              )}
-            />
+            <>
+              <ThinkingTTS
+                content={reasoningText}
+                messageId={messageId}
+                className={cn(
+                  'shrink-0 opacity-0 transition-opacity',
+                  'group-focus-within/reasoning-compact:opacity-100 group-hover/reasoning-compact:opacity-100',
+                  'focus-visible:opacity-100',
+                )}
+              />
+              <CopyButton
+                isCopied={isCopied}
+                iconOnly
+                onClick={handleCopy}
+                label={localize('com_ui_copy_thoughts_to_clipboard')}
+                copiedLabel={localize('com_ui_copied_to_clipboard')}
+                className={cn(
+                  'shrink-0 opacity-0 transition-opacity',
+                  'group-focus-within/reasoning-compact:opacity-100 group-hover/reasoning-compact:opacity-100',
+                  'focus-visible:opacity-100',
+                )}
+              />
+            </>
           )}
         </div>
         {!isExpanded && isStreaming && <StreamingThoughtPeek text={reasoningText} />}
@@ -425,6 +446,7 @@ export const ReasoningCompact = memo(
                   onClick={handleToggle}
                   content={reasoningText}
                   contentId={contentId}
+                  messageId={messageId}
                 />
               </div>
             )}

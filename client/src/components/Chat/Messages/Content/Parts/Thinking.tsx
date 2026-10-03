@@ -12,13 +12,15 @@ import { useAtomValue } from 'jotai';
 import { Lightbulb, ChevronDown } from 'lucide-react';
 import { Button, MorphIcon, TooltipAnchor } from '@librechat/client';
 import { ChevronUp as ChevronUpNode, ChevronDown as ChevronDownNode } from 'lucide';
-import type { FocusEvent, FC } from 'react';
+import type { FocusEvent, FC, ReactNode } from 'react';
 import CopyButton from '~/components/Messages/Content/CopyButton';
 import { useLocalize, useExpandCollapse } from '~/hooks';
 import { showThinkingAtom } from '~/store/showThinking';
 import { fontSizeAtom } from '~/store/fontSize';
+import { useMessageContext } from '~/Providers';
 import { AnimatedText } from '../animate';
 import { ROW_GLYPH_SLOT } from '../rows';
+import ThinkingTTS from './ThinkingTTS';
 import { cn } from '~/utils';
 
 /**
@@ -83,6 +85,7 @@ export const ThinkingButton = memo(
     showCopyButton = true,
     animateLabel = false,
     shimmerLabel = false,
+    tts,
   }: {
     isExpanded: boolean;
     onClick: (e: MouseEvent<HTMLButtonElement>) => void;
@@ -95,6 +98,9 @@ export const ThinkingButton = memo(
      *  tool call's label carries, so "thinking" reads as in-flight rather
      *  than as a settled disclosure. Off for finished thoughts. */
     shimmerLabel?: boolean;
+    /** Optional action rendered on the header's right edge beside the copy
+     *  button (the read-thoughts control). */
+    tts?: ReactNode;
   }) => {
     const localize = useLocalize();
 
@@ -169,19 +175,25 @@ export const ThinkingButton = memo(
             )}
           </span>
         </button>
-        {content && showCopyButton && isExpanded && (
-          <CopyButton
-            isCopied={isCopied}
-            iconOnly
-            onClick={handleCopy}
-            label={localize('com_ui_copy_thoughts_to_clipboard')}
-            copiedLabel={localize('com_ui_copied_to_clipboard')}
+        {content && (tts != null || (showCopyButton && isExpanded)) && (
+          <div
             className={cn(
-              'absolute right-0 top-1/2 -translate-y-1/2 opacity-0 transition-opacity',
+              'absolute right-0 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity',
               'group-focus-within/thinking-container:opacity-100 group-hover/thinking-container:opacity-100',
-              'focus-visible:opacity-100',
+              'focus-within:opacity-100',
             )}
-          />
+          >
+            {tts}
+            {content && showCopyButton && isExpanded && (
+              <CopyButton
+                isCopied={isCopied}
+                iconOnly
+                onClick={handleCopy}
+                label={localize('com_ui_copy_thoughts_to_clipboard')}
+                copiedLabel={localize('com_ui_copied_to_clipboard')}
+              />
+            )}
+          </div>
         )}
       </div>
     );
@@ -219,12 +231,14 @@ export const FloatingThinkingBar = memo(
     onClick,
     content,
     contentId,
+    messageId,
   }: {
     isVisible: boolean;
     isExpanded: boolean;
     onClick: (e: MouseEvent<HTMLButtonElement>) => void;
     content?: string;
     contentId: string;
+    messageId?: string;
   }) => {
     const localize = useLocalize();
     const [isCopied, setIsCopied] = useState(false);
@@ -268,6 +282,9 @@ export const FloatingThinkingBar = memo(
             </Button>
           }
         />
+        {content && messageId && (
+          <ThinkingTTS content={content} messageId={messageId} tabIndex={isVisible ? 0 : -1} />
+        )}
         {content && (
           <CopyButton
             isCopied={isCopied}
@@ -301,6 +318,7 @@ export const FloatingThinkingBar = memo(
 const Thinking: React.ElementType = memo(({ children }: { children: React.ReactNode }) => {
   const localize = useLocalize();
   const showThinking = useAtomValue(showThinkingAtom);
+  const { messageId, isLatestMessage } = useMessageContext();
   const [isExpanded, setIsExpanded] = useState(showThinking);
   const [isBarVisible, setIsBarVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -363,6 +381,13 @@ const Thinking: React.ElementType = memo(({ children }: { children: React.ReactN
           label={label}
           content={textContent}
           contentId={contentId}
+          tts={
+            <ThinkingTTS
+              content={textContent}
+              messageId={messageId}
+              isLast={isLatestMessage === true}
+            />
+          }
         />
       </div>
       <div
@@ -384,6 +409,7 @@ const Thinking: React.ElementType = memo(({ children }: { children: React.ReactN
               onClick={handleClick}
               content={textContent}
               contentId={contentId}
+              messageId={messageId}
             />
           </div>
         </div>

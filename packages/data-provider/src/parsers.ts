@@ -409,11 +409,36 @@ export function parseTextParts(
        *  full-record surfaces (search indexing, persisted abort text) opt in. */
       append(typeof part.steer === 'string' ? part.steer : '');
     } else if (part.type === ContentTypes.THINK && !skipReasoning) {
-      append(typeof part.think === 'string' ? part.think : '');
+      /** Streamed reasoning can carry the provider's own <think> wrapper tags
+       *  in the stored value; extraction speaks the thought, not the tags. */
+      const think = typeof part.think === 'string' ? part.think : '';
+      append(
+        think
+          .replace(/^<think>\s*/, '')
+          .replace(/\s*<\/think>$/, '')
+          .trim(),
+      );
     }
   }
 
   return result;
+}
+
+/**
+ * Removes embedded thinking/reasoning markers from plain-text message content
+ * so text-extraction consumers (read-aloud) speak only the visible response.
+ * Covers the legacy :::thinking ... ::: block and the modern
+ * <think> ... </think> wrapper.
+ */
+export function stripThinkingTags(text: string | null | undefined): string {
+  if (!text) {
+    return '';
+  }
+  return text
+    .replace(/:::thinking[\s\S]*?:::/g, ' ')
+    .replace(/<think>[\s\S]*?<\/think>/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 }
 
 export const SEPARATORS = ['.', '?', '!', '۔', '。', '‥', ';', '¡', '¿', '\n', '```'];

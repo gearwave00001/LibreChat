@@ -1,7 +1,8 @@
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { RecoilRoot, type MutableSnapshot } from 'recoil';
-import { act, render, screen } from '@testing-library/react';
+import { Provider as JotaiProvider, createStore } from 'jotai';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   Constants,
@@ -17,6 +18,7 @@ import {
 } from '~/Providers/MessagesViewContext';
 import { hasCopyableText } from '~/hooks/Messages/useCopyToClipboard';
 import HoverButtons from '~/components/Chat/Messages/HoverButtons';
+import { ttsIncludeThinkingAtom } from '~/store/ttsThinking';
 import store from '~/store';
 
 const conversation = {
@@ -637,5 +639,124 @@ describe('HoverButtons feedback affordance', () => {
     expect(screen.queryByTitle('Love this')).toBeNull();
     expect(screen.queryByTitle('Needs improvement')).toBeNull();
     expect(screen.getByTestId('copy-response-button')).toBeInTheDocument();
+  });
+});
+
+describe('HoverButtons read-aloud extraction', () => {
+  const voiceName = 'Test Voice';
+  const spoken: string[] = [];
+
+  class FakeSpeechSynthesisUtterance {
+    public voice: SpeechSynthesisVoice | null = null;
+    public onend: (() => void) | null = null;
+    public onerror: ((event: { error: string }) => void) | null = null;
+    constructor(public text: string) {}
+  }
+
+  const fakeVoice = { name: voiceName, localService: true } as SpeechSynthesisVoice;
+
+  const thinkingAssistantMessage = {
+    ...userMessage,
+    messageId: 'assistant-1',
+    isCreatedByUser: false,
+    text: 'Answer',
+    content: [
+      { type: ContentTypes.THINK, think: '<think>pondering</think>' },
+      { type: ContentTypes.TEXT, text: 'Answer' },
+    ],
+  } as TMessage;
+
+  /** Renders the row's hover controls with the TTS engine ready to speak,
+   *  so the read-aloud button's extraction is what the utterance carries. */
+  const renderWithTTS = ({ includeThinking = false }: { includeThinking?: boolean } = {}) => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    /** A fresh Jotai store per render: `atomWithStorage` only re-reads storage at
+     *  mount, so the preference has to be written where the render can see it. */
+    const jotaiStore = createStore();
+    if (includeThinking) {
+      jotaiStore.set(ttsIncludeThinkingAtom, true);
+    }
+
+    const initializeState = ({ set }: MutableSnapshot) => {
+      set(store.textToSpeech, true);
+      set(store.speechSettingsInitialized, true);
+      set(store.voice, voiceName);
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <JotaiProvider store={jotaiStore}>
+          <RecoilRoot initializeState={initializeState}>
+            <MessagesOperationsContext.Provider
+              value={
+                {
+                  getMessages: () => [userMessage, thinkingAssistantMessage],
+                } as unknown as MessagesOperations
+              }
+            >
+              <MessagesSubmittingContext.Provider value={false}>
+                <MemoryRouter>
+                  <HoverButtons
+                    index={0}
+                    isLast={true}
+                    isEditing={false}
+                    message={thinkingAssistantMessage}
+                    conversation={conversation}
+                    enterEdit={jest.fn()}
+                    regenerate={jest.fn()}
+                    handleContinue={jest.fn()}
+                    copyToClipboard={jest.fn()}
+                    getCanCopy={() => true}
+                    latestMessageId={thinkingAssistantMessage.messageId}
+                  />
+                </MemoryRouter>
+              </MessagesSubmittingContext.Provider>
+            </MessagesOperationsContext.Provider>
+          </RecoilRoot>
+        </JotaiProvider>
+      </QueryClientProvider>,
+    );
+  };
+
+  beforeAll(() => {
+    /** jsdom's `URL` has no object-URL API; the TTS row's audio ref unmounts one. */
+    URL.revokeObjectURL = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      writable: true,
+      configurable: true,
+      value: {
+        getVoices: () => [fakeVoice],
+        addEventListener: () => undefined,
+        speak: (utterance: FakeSpeechSynthesisUtterance) => {
+          spoken.push(utterance.text);
+        },
+        cancel: () => undefined,
+      },
+    });
+    Object.defineProperty(global, 'SpeechSynthesisUtterance', {
+      writable: true,
+      configurable: true,
+      value: FakeSpeechSynthesisUtterance,
+    });
+  });
+
+  beforeEach(() => {
+    spoken.length = 0;
+    (URL.revokeObjectURL as jest.Mock).mockClear();
+  });
+
+  it('reads only the response body when the user has not opted into thinking', () => {
+    renderWithTTS();
+    fireEvent.click(screen.getByTestId('read-aloud-button'));
+
+    expect(spoken).toEqual(['Answer']);
+  });
+
+  it('also reads the thinking part when the user opted into hearing it', () => {
+    renderWithTTS({ includeThinking: true });
+    fireEvent.click(screen.getByTestId('read-aloud-button'));
+
+    expect(spoken).toEqual(['pondering Answer']);
   });
 });
