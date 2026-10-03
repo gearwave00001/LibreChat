@@ -1,11 +1,12 @@
-import { memo } from 'react';
+/* eslint-disable jsx-a11y/media-has-caption */
+import { memo, useEffect } from 'react';
 import { useRecoilValue } from 'recoil';
 import { Volume2, VolumeX } from 'lucide';
 import { MorphIcon, TooltipAnchor } from '@librechat/client';
 import { useTTSBrowser, useTTSExternal } from '~/hooks/Audio';
 import { TTSEndpoints } from '~/common';
 import { useLocalize } from '~/hooks';
-import { cn } from '~/utils';
+import { cn, logger } from '~/utils';
 import store from '~/store';
 
 type ThinkingTTSProps = {
@@ -78,15 +79,59 @@ const BrowserThinkingTTS = memo((props: ThinkingTTSProps) => {
 BrowserThinkingTTS.displayName = 'BrowserThinkingTTS';
 
 const ExternalThinkingTTS = memo((props: ThinkingTTSProps) => {
-  const { toggleSpeech, isSpeaking, isLoading } = useTTSExternal(props);
+  const playbackRate = useRecoilValue(store.playbackRate);
+  const thoughtAudioId = `audio-${props.messageId}-thought`;
+  /** The synthetic id keeps this element (and the cancelSpeech lookup) from
+   *  colliding with the message-level `audio-${messageId}` element. */
+  const { toggleSpeech, isSpeaking, isLoading, audioRef } = useTTSExternal({
+    content: props.content,
+    messageId: `${props.messageId}-thought`,
+    isLast: false,
+    index: props.index,
+  });
+
+  useEffect(() => {
+    const thoughtAudio = document.getElementById(thoughtAudioId) as HTMLAudioElement | null;
+    if (!thoughtAudio) {
+      return;
+    }
+    if (playbackRate != null && playbackRate > 0 && thoughtAudio.playbackRate !== playbackRate) {
+      thoughtAudio.playbackRate = playbackRate;
+    }
+  }, [audioRef, isSpeaking, playbackRate, thoughtAudioId]);
+
   return (
-    <ReadThoughtsButton
-      isSpeaking={isSpeaking}
-      isLoading={isLoading}
-      onToggle={toggleSpeech}
-      className={props.className}
-      tabIndex={props.tabIndex}
-    />
+    <>
+      <ReadThoughtsButton
+        isSpeaking={isSpeaking}
+        isLoading={isLoading}
+        onToggle={() => {
+          if (audioRef.current) {
+            audioRef.current.muted = false;
+          }
+          toggleSpeech();
+        }}
+        className={props.className}
+        tabIndex={props.tabIndex}
+      />
+      <audio
+        ref={audioRef}
+        preload="none"
+        style={{
+          position: 'absolute',
+          overflow: 'hidden',
+          display: 'none',
+          height: '0px',
+          width: '0px',
+        }}
+        src={audioRef.current?.src}
+        onError={(error) => {
+          logger.error('Error playing thought audio:', error);
+        }}
+        id={thoughtAudioId}
+        autoPlay
+      />
+    </>
   );
 });
 
